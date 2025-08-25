@@ -1,0 +1,170 @@
+<!-- FREE-FLOWING DOWNWARD GRADIENT FOOTER (top → bottom) -->
+<footer class="downflow-footer" id="downflow" aria-hidden="true">
+  <canvas id="flowfx"></canvas>
+</footer>
+
+<style>
+  .downflow-footer{
+    width:1420px; height:380px;           /* remove width for full-width */
+    margin:0 auto; border-radius:16px;
+    overflow:hidden; position:relative; isolation:isolate;
+
+    /* base gradient: top dark -> bottom light */
+    background: linear-gradient(180deg,
+      #212121 20%,
+      #464646 65%,
+      #646464 100%
+    );
+  }
+  .downflow-footer::before{
+    content:""; position:absolute; left:0; right:0; top:0; height:1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);
+    z-index:3; pointer-events:none;
+  }
+  #flowfx{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    display:block; pointer-events:none;
+    z-index:2;
+  }
+  @media (prefers-reduced-motion: reduce){ #flowfx{ display:none; } }
+</style>
+
+<script>
+/* ===== Simplex noise (2D) ===== */
+function SimplexNoise(rand){
+  if(rand==undefined) rand=Math;
+  this.p=[]; for(let i=0;i<256;i++) this.p[i]=rand.floor(rand.random()*256);
+  this.perm=[]; for(let i=0;i<512;i++) this.perm[i]=this.p[i&255];
+  this.grad3=[[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+}
+SimplexNoise.prototype.dot=function(g,x,y){return g[0]*x+g[1]*y;};
+SimplexNoise.prototype.noise2D=function(xin,yin){
+  const grad3=this.grad3, perm=this.perm;
+  let n0,n1,n2;
+  const F2=0.5*(Math.sqrt(3)-1), s=(xin+yin)*F2, i=Math.floor(xin+s), j=Math.floor(yin+s);
+  const G2=(3-Math.sqrt(3))/6, t=(i+j)*G2, X0=i-t, Y0=j-t, x0=xin-X0, y0=yin-Y0;
+  let i1, j1; if(x0>y0){i1=1; j1=0;} else {i1=0; j1=1;}
+  const x1=x0-i1+G2, y1=y0-j1+G2, x2=x0-1+2*G2, y2=y0-1+2*G2;
+  const ii=i&255, jj=j&255;
+  const gi0=perm[ii+perm[jj]]%12, gi1=perm[ii+i1+perm[jj+j1]]%12, gi2=perm[ii+1+perm[jj+1]]%12;
+  let t0=0.5-x0*x0-y0*y0; n0 = t0<0?0:(t0*=t0, t0*t0*this.dot(grad3[gi0],x0,y0));
+  let t1=0.5-x1*x1-y1*y1; n1 = t1<0?0:(t1*=t1, t1*t1*this.dot(grad3[gi1],x1,y1));
+  let t2=0.5-x2*x2-y2*y2; n2 = t2<0?0:(t2*=t2, t2*t2*this.dot(grad3[gi2],x2,y2));
+  return 70*(n0+n1+n2);
+};
+
+/* ===== Free-flow downward field (fbm + domain warp) ===== */
+(() => {
+  const host = document.getElementById('downflow');
+  const canvas = document.getElementById('flowfx');
+  const ctx = canvas.getContext('2d', { alpha:true });
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  const CFG = {
+    intensity: 0.05,  // overall strength (0..1)
+    softness:  22,    // blur px (silkiness)
+    speed:     0.32,  // DOWNWARD flow rate (noise units/sec)
+    scaleX:    0.013, // horizontal noise scale
+    scaleY:    0.010, // vertical noise scale
+    contrast:  13.15,  // >1 increases contrast
+    warp:      0.65,  // domain-warp strength (prevents banding)
+    res:       0.63   // offscreen resolution factor
+  };
+
+  let field, fctx, fw=0, fh=0, imgData, data;
+  const simplex = new SimplexNoise();
+
+  function fbm(x,y,oct=4){
+    let amp=0.55, freq=1.0, sum=0, norm=0;
+    for(let i=0;i<oct;i++){
+      sum += amp * simplex.noise2D(x*freq, y*freq);
+      norm += amp; amp *= 0.5; freq *= 1.85;
+    }
+    return sum / norm; // ~-1..1
+  }
+
+  function resize(){
+    const r = host.getBoundingClientRect();
+    canvas.width  = Math.max(1, (r.width  * dpr)|0);
+    canvas.height = Math.max(1, (r.height * dpr)|0);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+
+    fw = Math.max(64, Math.floor(r.width  * CFG.res));
+    fh = Math.max(64, Math.floor(r.height * CFG.res));
+    field = document.createElement('canvas');
+    field.width = fw; field.height = fh;
+    fctx = field.getContext('2d');
+    imgData = fctx.createImageData(fw, fh);
+    data = imgData.data;
+  }
+  resize(); addEventListener('resize', resize);
+
+  function renderField(timeMs){
+    const t = timeMs*0.001;
+    const yFlow = t * CFG.speed; // amount of motion
+
+    let p = 0;
+    for(let y=0; y<fh; y++){
+      for(let x=0; x<fw; x++){
+        const nx = x * CFG.scaleX;
+        // *** DOWNWARD movement: subtract yFlow so features travel top -> bottom ***
+        const ny = y * CFG.scaleY - yFlow;
+
+        // domain warp
+        const wx = simplex.noise2D(nx*0.6, ny*0.6 + 3.7) * CFG.warp;
+        const wy = simplex.noise2D(nx*0.6 + 5.2, ny*0.6) * CFG.warp;
+
+        let n = fbm(nx + wx, ny + wy, 4);
+        n = (n*0.5 + 0.5); // 0..1
+
+        // gentle vertical bias (keeps bottom slightly calmer)
+        const bias = 0.95 - (y/fh)*0.10;
+        n = Math.min(1, Math.max(0, ((n - 0.5)*CFG.contrast + 0.5) * bias));
+
+        const v = Math.round(n * 255);
+        data[p++] = v; data[p++] = v; data[p++] = v;
+        data[p++] = Math.round(255 * CFG.intensity); // alpha per-pixel
+      }
+    }
+    fctx.putImageData(imgData, 0, 0);
+  }
+
+  function drawToScreen(){
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.filter = `blur(${CFG.softness}px)`;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(field, 0, 0, w, h);
+    ctx.filter = 'none';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+  }
+
+  let start = performance.now(), paused=false;
+  function loop(now){
+    if (paused) { requestAnimationFrame(loop); return; }
+    renderField(now - start);
+    ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+    drawToScreen();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  document.addEventListener('visibilitychange', () => { paused = document.hidden; });
+
+  // Optional live tweaks
+  window.FlowDown = {
+    set({intensity, softness, speed, scaleX, scaleY, contrast, warp, res} = {}){
+      if(intensity!==undefined) CFG.intensity = +intensity;
+      if(softness !==undefined) CFG.softness  = +softness;
+      if(speed    !==undefined) CFG.speed     = +speed;
+      if(scaleX   !==undefined) CFG.scaleX    = +scaleX;
+      if(scaleY   !==undefined) CFG.scaleY    = +scaleY;
+      if(contrast !==undefined) CFG.contrast  = +contrast;
+      if(warp     !==undefined) CFG.warp      = +warp;
+      if(res      !==undefined) { CFG.res = +res; resize(); }
+    }
+  };
+})();
+</script>
