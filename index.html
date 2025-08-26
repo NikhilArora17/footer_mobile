@@ -5,13 +5,13 @@
 
 <style>
   .downflow-footer{
-    width:1920px; height:1080px;           /* remove width for full-width */
+    width:820px; height:1080px;           /* remove width for full-width */
     margin:0 auto; border-radius:0px;
     overflow:hidden; position:relative; isolation:isolate;
 
     /* base gradient: top dark -> bottom light */
     background: linear-gradient(180deg,
-      #212121 20%,
+      #212121 30%,
       #464646 65%,
       #646464 100%
     );
@@ -62,13 +62,13 @@ SimplexNoise.prototype.noise2D=function(xin,yin){
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
   const CFG = {
-    intensity: 0.05,  // overall strength (0..1)
-    softness:  22,    // blur px (silkiness)
+    intensity: 0.15,  // overall strength (0..1)
+    softness:  32,    // blur px (silkiness)
     speed:     0.32,  // DOWNWARD flow rate (noise units/sec)
     scaleX:    0.013, // horizontal noise scale
     scaleY:    0.010, // vertical noise scale
     contrast:  13.15,  // >1 increases contrast
-    warp:      0.65,  // domain-warp strength (prevents banding)
+    warp:      1.65,  // domain-warp strength (prevents banding)
     res:       0.63   // offscreen resolution factor
   };
 
